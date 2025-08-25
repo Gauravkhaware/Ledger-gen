@@ -11,8 +11,8 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const model = "gemini-2.5-flash";
 
 // Constants to manage context size and prevent exceeding API token limits
-const MAX_CHARS_PER_DOC = 8000; // Max characters to include from a single document
-const MAX_TOTAL_CHARS_IN_PROMPT = 500000; // Max total characters for all documents in a prompt
+const MAX_CHARS_PER_DOC = 7500; // Max characters to include from a single document
+const MAX_TOTAL_CHARS_IN_PROMPT = 250000; // Max total characters for all documents in a prompt
 
 const callGemini = async (prompt: string): Promise<string> => {
     try {
@@ -150,6 +150,14 @@ export const generateSuggestions = async (documents: DocumentData[]): Promise<st
 
 export const organizeFile = async (file: DocumentData): Promise<{ summary: string; file: FileDownloadData }> => {
     try {
+        let fileContent = file.content;
+        // Truncate content to avoid exceeding token limits, allowing space for instruction
+        const maxContentLength = MAX_TOTAL_CHARS_IN_PROMPT - 5000; // Reserve 5k chars for instruction
+        if (fileContent.length > maxContentLength) {
+            const half = Math.floor(maxContentLength / 2);
+            fileContent = `${fileContent.substring(0, half)}\n\n... [Content Truncated for Brevity] ...\n\n${fileContent.substring(fileContent.length - half)}`;
+        }
+
         const fullPrompt = `
             ${EXCEL_ORGANIZER_INSTRUCTION}
 
@@ -157,7 +165,7 @@ export const organizeFile = async (file: DocumentData): Promise<{ summary: strin
             File Name: ${file.name}
 
             --- FILE CONTENT START ---
-            ${file.content}
+            ${fileContent}
             --- FILE CONTENT END ---
 
             Please process this file and provide the result in the specified format.
@@ -308,25 +316,8 @@ export const extractInvoiceData = async (base64Image: string, mimeType: string):
 };
 
 export const generateThreeWayMatch = async (po: DocumentData, grn: DocumentData, invoice: DocumentData): Promise<string> => {
-    const prompt = `
-        ${THREE_WAY_MATCH_INSTRUCTION}
-
-        Here are the documents to match:
-
-        --- START OF PURCHASE ORDER (fileId: ${po.id}) ---
-        ${po.content}
-        --- END OF PURCHASE ORDER ---
-
-        --- START OF GOODS RECEIPT NOTE (fileId: ${grn.id}) ---
-        ${grn.content}
-        --- END OF GOODS RECEIPT NOTE ---
-
-        --- START OF INVOICE (fileId: ${invoice.id}) ---
-        ${invoice.content}
-        --- END OF INVOICE ---
-
-        Please perform the three-way match analysis.
-    `;
+    let prompt = buildPromptWithDocuments(THREE_WAY_MATCH_INSTRUCTION, [po, grn, invoice]);
+    prompt += `\n\nPlease perform the three-way match analysis.`;
     return await callGemini(prompt);
 };
 
@@ -398,39 +389,13 @@ export const generateLitigationDraft = async (caseDetails: LitigationCase, docum
 };
 
 export const generateGstReconciliation = async (purchaseRegister: DocumentData, gstr2b: DocumentData): Promise<string> => {
-    const prompt = `
-        ${GST_RECONCILIATION_INSTRUCTION}
-
-        Here are the two documents to reconcile:
-
-        --- START OF PURCHASE REGISTER (fileId: ${purchaseRegister.id}) ---
-        ${purchaseRegister.content}
-        --- END OF PURCHASE REGISTER ---
-
-        --- START OF GSTR-2B (fileId: ${gstr2b.id}) ---
-        ${gstr2b.content}
-        --- END OF GSTR-2B ---
-
-        Please perform the GST reconciliation and generate the report as specified.
-    `;
+    let prompt = buildPromptWithDocuments(GST_RECONCILIATION_INSTRUCTION, [purchaseRegister, gstr2b]);
+    prompt += `\n\nPlease perform the GST reconciliation and generate the report as specified.`;
     return await callGemini(prompt);
 };
 
 export const generateBankReconciliation = async (bankStatement: DocumentData, books: DocumentData): Promise<string> => {
-    const prompt = `
-        ${BANK_RECONCILIATION_INSTRUCTION}
-
-        Here are the two documents to reconcile:
-
-        --- START OF BANK STATEMENT (fileId: ${bankStatement.id}) ---
-        ${bankStatement.content}
-        --- END OF BANK STATEMENT ---
-
-        --- START OF COMPANY BOOKS (fileId: ${books.id}) ---
-        ${books.content}
-        --- END OF COMPANY BOOKS ---
-
-        Please perform the Bank Reconciliation and generate the report as specified.
-    `;
+    let prompt = buildPromptWithDocuments(BANK_RECONCILIATION_INSTRUCTION, [bankStatement, books]);
+    prompt += `\n\nPlease perform the Bank Reconciliation and generate the report as specified.`;
     return await callGemini(prompt);
 };
